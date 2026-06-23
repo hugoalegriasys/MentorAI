@@ -1,194 +1,162 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 import joblib
 import os
+import json
+import re
+from openai import OpenAI
 
 # ============================================================
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS
+# 1. CONFIGURACIÓN Y ESTILOS
 # ============================================================
-# ¡Importante! set_page_config debe ser el primer comando de Streamlit
-st.set_page_config(
-    page_title="MentorAI | Descubre tu Camino",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="MentorAI Chat", page_icon="🧠", layout="centered")
 
-# Estilos profesionales (Light Theme forzado)
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-    
-    /* Fondo general */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     .stApp { background-color: #F8FAFC !important; font-family: 'Inter', sans-serif; }
-    
-    /* FORZAR COLOR DE TEXTO OSCURO PARA EVITAR INVISIBILIDAD EN MODO OSCURO */
     html, body, [class*="st-"] { color: #334155 !important; }
-    h1, h2, h3, h4, h5, h6 { color: #0F172A !important; font-family: 'Inter', sans-serif; }
-    p, span, label, div[data-testid="stMarkdownContainer"] { color: #475569 !important; }
-    .subtitle { color: #64748B !important; font-size: 1.1rem; margin-bottom: 2rem; }
-    
-    /* Botón principal */
-    div.stButton > button {
-        background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%) !important;
-        border: none !important; border-radius: 12px !important; padding: 0.75rem 2rem !important;
-        width: 100% !important; transition: all 0.3s ease; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
-    }
-    div.stButton > button p, div.stButton > button span { 
-        color: white !important; font-weight: 800 !important; font-size: 1.1rem !important; 
-    }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(37, 99, 235, 0.3); }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 2. CARGA DEL MODELO MOTOR COMPLETO
+# 2. CARGA DEL MOTOR XGBOOST LOCAL
 # ============================================================
 @st.cache_resource
 def load_mentor_engine():
     model_path = "modelos/motor_completo.joblib"
     if os.path.exists(model_path):
-        try:
-            return joblib.load(model_path)
-        except Exception as e:
-            st.sidebar.error(f"Error cargando modelo: {e}")
-            return None
+        return joblib.load(model_path)
     else:
-        # MOCK ENGINE: Solo para demostración visual hasta que subas el .joblib
         class MockEngine:
             def recommend(self, perfil, top_k=5, include_details=True):
                 import random
-                carreras = ["Datos e IA", "Tecnología Core", "Diseño UX/UI", "Negocios Tech", "Marketing", "Ciberseguridad", "Finanzas"]
+                carreras = ["Datos e IA", "Tecnología Core", "Diseño UX/UI", "Negocios Tech", "Marketing"]
                 random.shuffle(carreras)
-                return [{"rank": i+1, "carrera": c, "confidence": round(random.uniform(60, 95) - (i*5), 1)} for i, c in enumerate(carreras[:top_k])]
+                return [{"rank": i+1, "carrera": c, "confidence": round(random.uniform(70, 95)-(i*3), 1)} for i, c in enumerate(carreras[:top_k])]
         return MockEngine()
 
 engine = load_mentor_engine()
 
 # ============================================================
-# 3. INTERFAZ PRINCIPAL
+# 3. CONFIGURACIÓN DEL LLM (GROQ)
 # ============================================================
-st.title("🧠 MentorAI")
-st.markdown("<p class='subtitle'>Evaluación vocacional potenciada por Inteligencia Artificial híbrida (XGBoost + Redes O*NET)</p>", unsafe_allow_html=True)
+API_KEY = st.secrets.get("GROQ_API_KEY", "tu_api_key_aqui")
+
+client = OpenAI(
+    api_key=API_KEY,
+    base_url="https://api.groq.com/openai/v1"
+)
+
+SYSTEM_PROMPT = """
+Eres MentorAI, un orientador vocacional empático y conversacional.
+Tu objetivo es evaluar al usuario en 13 áreas (del 1 al 10), además de conocer su 'age' (edad) y 'education' (1=Secundaria, 2=Universidad, 3=Maestría, 4=Doctorado).
+
+Las 13 áreas son: analytical, logical_reasoning, problem_solving, creativity, design, communication, empathy, social, teamwork, leadership, technology, business, stress_tolerance.
+
+REGLAS:
+1. NO hagas una lista aburrida de preguntas. Haz preguntas conversacionales e indaga sobre sus gustos. Haz máximo 2 o 3 preguntas a la vez.
+2. Ve estimando internamente su puntaje del 1 al 10 en cada área según lo que responda.
+3. CUANDO YA TENGAS SUFICIENTE INFORMACIÓN para estimar los 15 valores, DEJA DE HABLAR normalmente.
+4. Tu ÚLTIMO mensaje debe ser ÚNICAMENTE un bloque de código JSON con esta estructura exacta (sin texto antes ni después):
+
+```json
+{
+  "analytical": 8,
+  "logical_reasoning": 7,
+  "problem_solving": 9,
+  "creativity": 4,
+  "design": 3,
+  "communication": 8,
+  "empathy": 9,
+  "social": 8,
+  "teamwork": 10,
+  "leadership": 7,
+  "technology": 6,
+  "business": 5,
+  "stress_tolerance": 8,
+  "age": 22,
+  "education": 2
+}
+"""
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "assistant", "content": "¡Hola! Soy MentorAI 🧠. Para empezar, cuéntame un poco sobre ti, ¿qué cosas disfrutas hacer?"}
+    ]
+    st.session_state.finished = False
+
+st.title("🧠 MentorAI Chatbot")
 st.markdown("---")
 
-# ============================================================
-# 4. FORMULARIO DE EVALUACIÓN (13 Rasgos Base)
-# ============================================================
-st.markdown("### 📊 Construye tu Perfil")
-st.write("Evalúa tus habilidades e intereses en una escala del 1 (Nada) al 10 (Excelente/Me apasiona).")
+for msg in st.session_state.messages:
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-with st.form("mentor_form"):
-    c1, c2, c3 = st.columns(3, gap="large")
-    
-    with c1:
-        st.markdown("#### 🧠 Cognitivo")
-        analytical = st.slider("Capacidad Analítica", 1, 10, 5)
-        logical_reasoning = st.slider("Razonamiento Lógico", 1, 10, 5)
-        problem_solving = st.slider("Resolución de Problemas", 1, 10, 5)
-        
-        st.markdown("#### 🎨 Creativo")
-        creativity = st.slider("Creatividad e Innovación", 1, 10, 5)
-        design = st.slider("Diseño Visual y Estética", 1, 10, 5)
+if prompt := st.chat_input("Escribe tu respuesta..." if not st.session_state.finished else "Evaluación completada."):
+    if not st.session_state.finished:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    with c2:
-        st.markdown("#### 🤝 Social y Equipo")
-        communication = st.slider("Comunicación (Oral/Escrita)", 1, 10, 5)
-        empathy = st.slider("Empatía / Inteligencia Emocional", 1, 10, 5)
-        social = st.slider("Habilidades Interpersonales", 1, 10, 5)
-        teamwork = st.slider("Trabajo en Equipo", 1, 10, 5)
-        leadership = st.slider("Liderazgo y Dirección", 1, 10, 5)
-
-    with c3:
-        st.markdown("#### 💻 Técnico y Negocios")
-        technology = st.slider("Aptitud Tecnológica", 1, 10, 5)
-        business = st.slider("Visión de Negocio", 1, 10, 5)
-        
-        st.markdown("#### 🛡️ Personal")
-        stress_tolerance = st.slider("Tolerancia al Estrés", 1, 10, 5)
-        
-        st.markdown("#### 🎓 Perfil General")
-        age = st.number_input("Edad", min_value=15, max_value=80, value=20)
-        edu_str = st.selectbox("Nivel Educativo Actual", ["Secundaria", "Bachiller / Universitario", "Maestría", "Doctorado"])
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    submit = st.form_submit_button("Analizar mi Perfil Vocacional 🚀")
-
-# ============================================================
-# 5. INFERENCIA Y RESULTADOS
-# ============================================================
-if submit:
-    # Mapeo de Educación según documentación: high_school=0.3, bachelor=0.5, master=0.7, phd=0.9
-    edu_map = {"Secundaria": 0.3, "Bachiller / Universitario": 0.5, "Maestría": 0.7, "Doctorado": 0.9}
-    
-    # Normalización de variables [0, 1]
-    perfil_usuario = {
-        "analytical": analytical / 10.0,
-        "logical_reasoning": logical_reasoning / 10.0,
-        "problem_solving": problem_solving / 10.0,
-        "creativity": creativity / 10.0,
-        "design": design / 10.0,
-        "communication": communication / 10.0,
-        "empathy": empathy / 10.0,
-        "social": social / 10.0,
-        "teamwork": teamwork / 10.0,
-        "leadership": leadership / 10.0,
-        "technology": technology / 10.0,
-        "business": business / 10.0,
-        "stress_tolerance": stress_tolerance / 10.0,
-        "education": edu_map[edu_str],
-        "age": min(age / 65.0, 1.0)
-    }
-
-    st.markdown("---")
-    st.markdown("### 🎯 Resultados de MentorAI")
-    
-    with st.spinner("Computando modelos XGBoost, similitud coseno y diversificando con MMR..."):
-        if engine:
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
             try:
-                recomendaciones = engine.recommend(perfil_usuario, top_k=5, include_details=True)
-                df_res = pd.DataFrame(recomendaciones)
-                
-                # Mostrar el Top 1 Destacado
-                top_1 = df_res.iloc[0]
-                st.markdown(f"""
-                <div style='background: linear-gradient(135deg, #EEF2FF, #E0E7FF); border: 2px solid #C7D2FE; border-radius: 16px; padding: 2rem; text-align: center; margin-bottom: 2rem;'>
-                    <h4 style='color: #4F46E5; margin:0;'>✨ TU CARRERA IDEAL ✨</h4>
-                    <h1 style='color: #1E293B; margin: 0.5rem 0;'>{top_1['carrera'].replace('_', ' ').title()}</h1>
-                    <p style='color: #475569; font-size: 1.1rem; margin:0;'>Confianza del modelo: <b>{top_1['confidence']}%</b></p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Gráfico de barras horizontal para el top 5
-                fig = go.Figure(go.Bar(
-                    x=df_res['confidence'], 
-                    y=df_res['carrera'].str.replace('_', ' ').str.title(),
-                    orientation='h',
-                    marker=dict(
-                        color=df_res['confidence'],
-                        colorscale='Blues',
-                        line=dict(color='#2563EB', width=1)
-                    ),
-                    text=[f"{v}%" for v in df_res['confidence']],
-                    textposition='outside'
-                ))
-                
-                fig.update_layout(
-                    title="Afinidad por Macro-Categorías Vocacionales",
-                    xaxis=dict(title="Nivel de Compatibilidad (%)", range=[0, 100]),
-                    yaxis=dict(autorange="reversed"),
-                    height=350,
-                    margin=dict(l=0, r=0, t=40, b=0),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)'
+                response = client.chat.completions.create(
+                    model="llama3-70b-8192",
+                    messages=st.session_state.messages,
+                    temperature=0.7
                 )
-                
-                st.plotly_chart(fig, use_container_width=True)
+                llm_reply = response.choices[0].message.content
+                st.session_state.messages.append({"role": "assistant", "content": llm_reply})
+
+                json_match = re.search(r'json\s*(\{.*?\})\s*', llm_reply, re.DOTALL)
+                if json_match:
+                    st.session_state.finished = True
+                    message_placeholder.markdown("✅ ¡Perfil completado! Procesando resultados...")
+                    try:
+                        datos_llm = json.loads(json_match.group(1))
+                        edu_map = {1: 0.3, 2: 0.5, 3: 0.7, 4: 0.9}
+                        perfil_usuario = {
+                            "analytical": datos_llm.get("analytical", 5) / 10.0,
+                            "logical_reasoning": datos_llm.get("logical_reasoning", 5) / 10.0,
+                            "problem_solving": datos_llm.get("problem_solving", 5) / 10.0,
+                            "creativity": datos_llm.get("creativity", 5) / 10.0,
+                            "design": datos_llm.get("design", 5) / 10.0,
+                            "communication": datos_llm.get("communication", 5) / 10.0,
+                            "empathy": datos_llm.get("empathy", 5) / 10.0,
+                            "social": datos_llm.get("social", 5) / 10.0,
+                            "teamwork": datos_llm.get("teamwork", 5) / 10.0,
+                            "leadership": datos_llm.get("leadership", 5) / 10.0,
+                            "technology": datos_llm.get("technology", 5) / 10.0,
+                            "business": datos_llm.get("business", 5) / 10.0,
+                            "stress_tolerance": datos_llm.get("stress_tolerance", 5) / 10.0,
+                            "education": edu_map.get(int(datos_llm.get("education", 2)), 0.5),
+                            "age": min(datos_llm.get("age", 20) / 65.0, 1.0)
+                        }
+                        recomendaciones = engine.recommend(perfil_usuario, top_k=3, include_details=True)
+                        df_res = pd.DataFrame(recomendaciones)
+                        top_1 = df_res.iloc[0]
+
+                        st.markdown("---")
+                        st.markdown(f"### 🎯 TU CARRERA IDEAL: {top_1['carrera'].replace('_', ' ').title()}")
+                        fig = go.Figure(go.Bar(
+                            x=df_res['confidence'],
+                            y=df_res['carrera'].str.replace('_', ' ').str.title(),
+                            orientation='h',
+                            marker=dict(color=df_res['confidence'], colorscale='Blues')
+                        ))
+                        fig.update_layout(title="Afinidad Vocacional", yaxis=dict(autorange="reversed"))
+                        st.plotly_chart(fig, use_container_width=True)
+
+                    except Exception as e:
+                        st.error(f"Error procesando JSON: {e}")
+                else:
+                    message_placeholder.markdown(llm_reply)
 
             except Exception as e:
-                st.error(f"Error en la inferencia del modelo: {str(e)}")
-        else:
-            st.error("El motor no se pudo cargar. Revisa los archivos .joblib en la carpeta 'modelos/'.")
+                message_placeholder.error(f"Error de API: {e}")
