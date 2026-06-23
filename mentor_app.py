@@ -11,13 +11,15 @@ from openai import OpenAI
 # ============================================================
 # 1. CONFIGURACIÓN Y ESTILOS
 # ============================================================
-st.set_page_config(page_title="MentorAI Chat", page_icon="🧠", layout="centered")
+st.set_page_config(page_title="MentorAI - Orientación Vocacional", page_icon="🧠", layout="centered")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     .stApp { background-color: #F8FAFC !important; font-family: 'Inter', sans-serif; }
     html, body, [class*="st-"] { color: #334155 !important; }
+    .stChatInput textarea { border-radius: 12px !important; }
+    .stChatMessage { border-radius: 12px !important; padding: 12px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -33,21 +35,38 @@ def load_mentor_engine():
         class MockEngine:
             def recommend(self, perfil, top_k=5, include_details=True):
                 import random
-                carreras = ["Datos e IA", "Tecnología Core", "Diseño UX/UI", "Negocios Tech", "Marketing"]
+                carreras = [
+                    "Datos e IA",
+                    "Tecnología Core",
+                    "Diseño UX/UI",
+                    "Negocios Tech",
+                    "Marketing Digital"
+                ]
                 random.shuffle(carreras)
-                return [{"rank": i+1, "carrera": c, "confidence": round(random.uniform(70, 95)-(i*3), 1)} for i, c in enumerate(carreras[:top_k])]
+                return [
+                    {
+                        "rank": i + 1,
+                        "carrera": c,
+                        "confidence": round(random.uniform(70, 95) - (i * 3), 1)
+                    }
+                    for i, c in enumerate(carreras[:top_k])
+                ]
         return MockEngine()
 
 engine = load_mentor_engine()
 
 # ============================================================
-# 3. CONFIGURACIÓN DEL LLM (GROQ)
+# 3. CONFIGURACIÓN DEL LLM (xAI / Grok)
 # ============================================================
-API_KEY = st.secrets.get("GROQ_API_KEY", "tu_api_key_aqui")
+API_KEY = st.secrets.get("XAI_API_KEY", "")
+
+if not API_KEY:
+    st.error("⚠️ No se encontró la API Key de xAI. Configúrala en los Secrets de Streamlit como `XAI_API_KEY`.")
+    st.stop()
 
 client = OpenAI(
     api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1"
+    base_url="https://api.x.ai/v1"
 )
 
 SYSTEM_PROMPT = """
@@ -82,14 +101,27 @@ REGLAS:
 }
 """
 
+# ============================================================
+# 4. INICIALIZACIÓN DEL ESTADO DE LA SESIÓN
+# ============================================================
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "assistant", "content": "¡Hola! Soy MentorAI 🧠. Para empezar, cuéntame un poco sobre ti, ¿qué cosas disfrutas hacer?"}
+        {
+            "role": "assistant",
+            "content": (
+                "¡Hola! Soy MentorAI 🧠. Cuéntame un poco sobre ti: "
+                "¿qué actividades o materias disfrutas más?"
+            )
+        }
     ]
     st.session_state.finished = False
 
-st.title("🧠 MentorAI Chatbot")
+# ============================================================
+# 5. INTERFAZ DE USUARIO
+# ============================================================
+st.title("🧠 MentorAI - Orientación Vocacional")
+st.markdown("Chatea conmigo para descubrir tu carrera ideal.")
 st.markdown("---")
 
 for msg in st.session_state.messages:
@@ -97,7 +129,9 @@ for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-if prompt := st.chat_input("Escribe tu respuesta..." if not st.session_state.finished else "Evaluación completada."):
+if prompt := st.chat_input(
+    "Escribe tu respuesta..." if not st.session_state.finished else "Evaluación completada."
+):
     if not st.session_state.finished:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -107,20 +141,27 @@ if prompt := st.chat_input("Escribe tu respuesta..." if not st.session_state.fin
             message_placeholder = st.empty()
             try:
                 response = client.chat.completions.create(
-                    model="llama3-70b-8192",
+                    model="grok-beta",
                     messages=st.session_state.messages,
                     temperature=0.7
                 )
                 llm_reply = response.choices[0].message.content
-                st.session_state.messages.append({"role": "assistant", "content": llm_reply})
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": llm_reply}
+                )
 
-                json_match = re.search(r'json\s*(\{.*?\})\s*', llm_reply, re.DOTALL)
+                json_match = re.search(
+                    r'json\s*(\{.*?\})\s*', llm_reply, re.DOTALL
+                )
                 if json_match:
                     st.session_state.finished = True
-                    message_placeholder.markdown("✅ ¡Perfil completado! Procesando resultados...")
+                    message_placeholder.markdown(
+                        "✅ ¡Perfil completado! Procesando resultados..."
+                    )
                     try:
                         datos_llm = json.loads(json_match.group(1))
                         edu_map = {1: 0.3, 2: 0.5, 3: 0.7, 4: 0.9}
+
                         perfil_usuario = {
                             "analytical": datos_llm.get("analytical", 5) / 10.0,
                             "logical_reasoning": datos_llm.get("logical_reasoning", 5) / 10.0,
@@ -135,23 +176,39 @@ if prompt := st.chat_input("Escribe tu respuesta..." if not st.session_state.fin
                             "technology": datos_llm.get("technology", 5) / 10.0,
                             "business": datos_llm.get("business", 5) / 10.0,
                             "stress_tolerance": datos_llm.get("stress_tolerance", 5) / 10.0,
-                            "education": edu_map.get(int(datos_llm.get("education", 2)), 0.5),
+                            "education": edu_map.get(
+                                int(datos_llm.get("education", 2)), 0.5
+                            ),
                             "age": min(datos_llm.get("age", 20) / 65.0, 1.0)
                         }
-                        recomendaciones = engine.recommend(perfil_usuario, top_k=3, include_details=True)
+
+                        recomendaciones = engine.recommend(
+                            perfil_usuario, top_k=3, include_details=True
+                        )
                         df_res = pd.DataFrame(recomendaciones)
                         top_1 = df_res.iloc[0]
 
                         st.markdown("---")
-                        st.markdown(f"### 🎯 TU CARRERA IDEAL: {top_1['carrera'].replace('_', ' ').title()}")
+                        st.markdown(
+                            f"### 🎯 TU CARRERA IDEAL: "
+                            f"{top_1['carrera'].replace('_', ' ').title()}"
+                        )
+
                         fig = go.Figure(go.Bar(
-                            x=df_res['confidence'],
-                            y=df_res['carrera'].str.replace('_', ' ').str.title(),
-                            orientation='h',
-                            marker=dict(color=df_res['confidence'], colorscale='Blues')
+                            x=df_res["confidence"],
+                            y=df_res["carrera"].str.replace("_", " ").str.title(),
+                            orientation="h",
+                            marker=dict(
+                                color=df_res["confidence"],
+                                colorscale="Blues"
+                            )
                         ))
-                        fig.update_layout(title="Afinidad Vocacional", yaxis=dict(autorange="reversed"))
-                        st.plotly_chart(fig, use_container_width=True)
+                        fig.update_layout(
+                            title="Afinidad Vocacional (%)",
+                            yaxis=dict(autorange="reversed"),
+                            height=300
+                        )
+                        st.plotly_chart(fig, width="stretch")
 
                     except Exception as e:
                         st.error(f"Error procesando JSON: {e}")
@@ -160,3 +217,20 @@ if prompt := st.chat_input("Escribe tu respuesta..." if not st.session_state.fin
 
             except Exception as e:
                 message_placeholder.error(f"Error de API: {e}")
+
+# ============================================================
+# REQUIREMENTS.TXT
+# ============================================================
+# Crea un archivo requirements.txt con el siguiente contenido:
+#
+# streamlit>=1.28.0
+# pandas>=1.5.0
+# numpy>=1.24.0
+# plotly>=5.15.0
+# joblib>=1.2.0
+# openai>=1.0.0
+#
+# Además, configura los Secrets de Streamlit:
+# Crea un archivo .streamlit/secrets.toml con:
+#
+# XAI_API_KEY = "tu-api-key-de-xai-aqui"
