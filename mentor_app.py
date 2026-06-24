@@ -31,7 +31,6 @@ st.markdown("""
         box-shadow: 0 8px 32px rgba(30, 41, 59, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
         margin-top: 1.5rem !important;
         margin-bottom: 1.5rem !important;
-        overflow: hidden;
     }
 
     header { display: none !important; }
