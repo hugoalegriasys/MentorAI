@@ -66,6 +66,12 @@ st.markdown("""
         padding: 10px 14px !important;
         margin-bottom: 6px !important;
         border: none !important;
+        color: #000000 !important;
+    }
+    div[data-testid="stChatMessage"] p,
+    div[data-testid="stChatMessage"] span,
+    div[data-testid="stChatMessage"] div {
+        color: #000000 !important;
     }
     div[data-testid="stChatMessage"]:has(div[data-testid="chatAvatarIcon-user"]) {
         background: #EFF6FF !important;
@@ -93,6 +99,10 @@ st.markdown("""
         background: #F8FAFC !important;
         padding: 10px 16px !important;
         font-size: 0.9rem !important;
+        color: #000000 !important;
+    }
+    .stChatInput textarea::placeholder {
+        color: #6B7280 !important;
     }
     .stChatInput textarea:focus {
         border-color: #3B82F6 !important;
