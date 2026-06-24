@@ -407,20 +407,16 @@ if prompt := st.chat_input(
 
                     st.markdown("---")
                     if st.button(
-                        "🔄 Volver a empezar",
+                        "🔄 Volver a comenzar",
                         use_container_width=True,
                         type="primary"
                     ):
+                        for key in list(st.session_state.keys()):
+                            del st.session_state[key]
                         st.session_state.finished = False
                         st.session_state.messages = [
                             {"role": "system", "content": SYSTEM_PROMPT},
-                            {
-                                "role": "assistant",
-                                "content": (
-                                    "¡Hola! Soy MentorAI 🧠. Cuéntame un poco sobre ti: "
-                                    "¿qué actividades o materias disfrutas más?"
-                                )
-                            }
+                            {"role": "assistant", "content": "¡Hola! Soy MentorAI 🧠. Cuéntame un poco sobre ti: ¿qué actividades o materias disfrutas más?"}
                         ]
                         st.rerun()
 
