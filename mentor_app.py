@@ -118,7 +118,27 @@ if "messages" not in st.session_state:
     st.session_state.finished = False
 
 # ============================================================
-# 5. INTERFAZ DE USUARIO
+# 5. FUNCIÓN PARA DETECTAR JSON EN RESPUESTA
+# ============================================================
+def extract_json(text):
+    match = re.search(r'\{.*?\}', text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group())
+            required_keys = {
+                "analytical", "logical_reasoning", "problem_solving",
+                "creativity", "design", "communication", "empathy",
+                "social", "teamwork", "leadership", "technology",
+                "business", "stress_tolerance", "age", "education"
+            }
+            if required_keys.issubset(data.keys()):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return None
+
+# ============================================================
+# 6. INTERFAZ DE USUARIO
 # ============================================================
 st.title("🧠 MentorAI - Orientación Vocacional")
 st.markdown("Chatea conmigo para descubrir tu carrera ideal.")
@@ -146,73 +166,130 @@ if prompt := st.chat_input(
                     temperature=0.7
                 )
                 llm_reply = response.choices[0].message.content
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": llm_reply}
-                )
 
-                json_match = re.search(
-                    r'json\s*(\{.*?\})\s*', llm_reply, re.DOTALL
-                )
-                if json_match:
+                datos_llm = extract_json(llm_reply)
+                if datos_llm:
                     st.session_state.finished = True
-                    message_placeholder.markdown(
-                        "✅ ¡Perfil completado! Procesando resultados..."
+                    message_placeholder.success(
+                        "✅ Evaluación completada. Procesando tu perfil..."
                     )
-                    try:
-                        datos_llm = json.loads(json_match.group(1))
-                        edu_map = {1: 0.3, 2: 0.5, 3: 0.7, 4: 0.9}
 
-                        perfil_usuario = {
-                            "analytical": datos_llm.get("analytical", 5) / 10.0,
-                            "logical_reasoning": datos_llm.get("logical_reasoning", 5) / 10.0,
-                            "problem_solving": datos_llm.get("problem_solving", 5) / 10.0,
-                            "creativity": datos_llm.get("creativity", 5) / 10.0,
-                            "design": datos_llm.get("design", 5) / 10.0,
-                            "communication": datos_llm.get("communication", 5) / 10.0,
-                            "empathy": datos_llm.get("empathy", 5) / 10.0,
-                            "social": datos_llm.get("social", 5) / 10.0,
-                            "teamwork": datos_llm.get("teamwork", 5) / 10.0,
-                            "leadership": datos_llm.get("leadership", 5) / 10.0,
-                            "technology": datos_llm.get("technology", 5) / 10.0,
-                            "business": datos_llm.get("business", 5) / 10.0,
-                            "stress_tolerance": datos_llm.get("stress_tolerance", 5) / 10.0,
-                            "education": edu_map.get(
-                                int(datos_llm.get("education", 2)), 0.5
+                    edu_map = {1: 0.3, 2: 0.5, 3: 0.7, 4: 0.9}
+
+                    perfil_usuario = {
+                        "analytical": datos_llm.get("analytical", 5) / 10.0,
+                        "logical_reasoning": datos_llm.get("logical_reasoning", 5) / 10.0,
+                        "problem_solving": datos_llm.get("problem_solving", 5) / 10.0,
+                        "creativity": datos_llm.get("creativity", 5) / 10.0,
+                        "design": datos_llm.get("design", 5) / 10.0,
+                        "communication": datos_llm.get("communication", 5) / 10.0,
+                        "empathy": datos_llm.get("empathy", 5) / 10.0,
+                        "social": datos_llm.get("social", 5) / 10.0,
+                        "teamwork": datos_llm.get("teamwork", 5) / 10.0,
+                        "leadership": datos_llm.get("leadership", 5) / 10.0,
+                        "technology": datos_llm.get("technology", 5) / 10.0,
+                        "business": datos_llm.get("business", 5) / 10.0,
+                        "stress_tolerance": datos_llm.get("stress_tolerance", 5) / 10.0,
+                        "education": edu_map.get(
+                            int(datos_llm.get("education", 2)), 0.5
+                        ),
+                        "age": min(datos_llm.get("age", 20) / 65.0, 1.0)
+                    }
+
+                    recomendaciones = engine.recommend(
+                        perfil_usuario, top_k=3, include_details=True
+                    )
+                    df_res = pd.DataFrame(recomendaciones)
+                    top_1 = df_res.iloc[0]
+
+                    st.markdown("---")
+                    st.markdown(
+                        f"### 🎯 TU CARRERA IDEAL: "
+                        f"{top_1['carrera'].replace('_', ' ').title()}"
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        labels = [
+                            "Analítico", "Razonamiento", "Problemas",
+                            "Creatividad", "Diseño", "Comunicación",
+                            "Empatía", "Social", "Trabajo en Equipo",
+                            "Liderazgo", "Tecnología", "Negocios",
+                            "Tolerancia al Estrés"
+                        ]
+                        values = [
+                            datos_llm.get("analytical", 5),
+                            datos_llm.get("logical_reasoning", 5),
+                            datos_llm.get("problem_solving", 5),
+                            datos_llm.get("creativity", 5),
+                            datos_llm.get("design", 5),
+                            datos_llm.get("communication", 5),
+                            datos_llm.get("empathy", 5),
+                            datos_llm.get("social", 5),
+                            datos_llm.get("teamwork", 5),
+                            datos_llm.get("leadership", 5),
+                            datos_llm.get("technology", 5),
+                            datos_llm.get("business", 5),
+                            datos_llm.get("stress_tolerance", 5)
+                        ]
+                        fig_radar = go.Figure()
+                        fig_radar.add_trace(go.Scatterpolar(
+                            r=values + [values[0]],
+                            theta=labels + [labels[0]],
+                            fill="toself",
+                            fillcolor="rgba(59, 130, 246, 0.3)",
+                            line=dict(color="#3B82F6", width=2),
+                            name="Tu perfil"
+                        ))
+                        fig_radar.update_layout(
+                            polar=dict(
+                                radialaxis=dict(
+                                    visible=True,
+                                    range=[0, 10],
+                                    tickfont=dict(size=10)
+                                ),
+                                bgcolor="rgba(0,0,0,0)"
                             ),
-                            "age": min(datos_llm.get("age", 20) / 65.0, 1.0)
-                        }
-
-                        recomendaciones = engine.recommend(
-                            perfil_usuario, top_k=3, include_details=True
+                            showlegend=False,
+                            height=350,
+                            margin=dict(l=40, r=40, t=20, b=20)
                         )
-                        df_res = pd.DataFrame(recomendaciones)
-                        top_1 = df_res.iloc[0]
+                        st.plotly_chart(fig_radar, width="stretch")
 
-                        st.markdown("---")
-                        st.markdown(
-                            f"### 🎯 TU CARRERA IDEAL: "
-                            f"{top_1['carrera'].replace('_', ' ').title()}"
-                        )
-
-                        fig = go.Figure(go.Bar(
+                    with col2:
+                        fig_bar = go.Figure(go.Bar(
                             x=df_res["confidence"],
                             y=df_res["carrera"].str.replace("_", " ").str.title(),
                             orientation="h",
                             marker=dict(
                                 color=df_res["confidence"],
                                 colorscale="Blues"
-                            )
+                            ),
+                            text=df_res["confidence"].apply(
+                                lambda v: f"{v}%"
+                            ),
+                            textposition="outside"
                         ))
-                        fig.update_layout(
-                            title="Afinidad Vocacional (%)",
+                        fig_bar.update_layout(
+                            title="Top Carreras Recomendadas",
                             yaxis=dict(autorange="reversed"),
-                            height=300
+                            height=300,
+                            margin=dict(l=10, r=40, t=40, b=20),
+                            xaxis=dict(range=[0, 100])
                         )
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(fig_bar, width="stretch")
 
-                    except Exception as e:
-                        st.error(f"Error procesando JSON: {e}")
+                    st.markdown("---")
+                    if st.button("🔄 Volver a intentar"):
+                        for key in list(st.session_state.keys()):
+                            del st.session_state[key]
+                        st.rerun()
+
                 else:
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": llm_reply}
+                    )
                     message_placeholder.markdown(llm_reply)
 
             except Exception as e:
