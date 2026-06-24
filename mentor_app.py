@@ -56,17 +56,17 @@ def load_mentor_engine():
 engine = load_mentor_engine()
 
 # ============================================================
-# 3. CONFIGURACIÓN DEL LLM (Google Gemini)
+# 3. CONFIGURACIÓN DEL LLM (Groq)
 # ============================================================
-API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 if not API_KEY:
-    st.error("⚠️ No se encontró la API Key de Gemini. Configúrala en los Secrets de Streamlit como `GEMINI_API_KEY`.")
+    st.error("⚠️ No se encontró la API Key de Groq. Configúrala en los Secrets de Streamlit como `GROQ_API_KEY`.")
     st.stop()
 
 client = OpenAI(
     api_key=API_KEY,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    base_url="https://api.groq.com/openai/v1"
 )
 
 SYSTEM_PROMPT = """
@@ -141,7 +141,7 @@ if prompt := st.chat_input(
             message_placeholder = st.empty()
             try:
                 response = client.chat.completions.create(
-                    model="gemini-3.5-flash",
+                    model="llama-3.3-70b-versatile",
                     messages=st.session_state.messages,
                     temperature=0.7
                 )
@@ -230,11 +230,7 @@ if prompt := st.chat_input(
 # joblib>=1.2.0
 # openai>=1.0.0
 #
-# Solo necesitas la librería openai (NO hace falta instalar
-# google-generativeai). La compatibilidad con Gemini se maneja
-# a través del base_url de OpenAI.
-#
 # Además, configura los Secrets de Streamlit:
 # Crea un archivo .streamlit/secrets.toml con:
 #
-# GEMINI_API_KEY = "tu-api-key-de-gemini-aqui"
+# GROQ_API_KEY = "tu-api-key-de-groq-aqui"
