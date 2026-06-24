@@ -141,7 +141,7 @@ if prompt := st.chat_input(
             message_placeholder = st.empty()
             try:
                 response = client.chat.completions.create(
-                    model="grok-2-latest",
+                    model="grok-4.1-fast",
                     messages=st.session_state.messages,
                     temperature=0.7
                 )
