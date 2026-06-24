@@ -141,7 +141,7 @@ if prompt := st.chat_input(
             message_placeholder = st.empty()
             try:
                 response = client.chat.completions.create(
-                    model="gemini-1.5-flash",
+                    model="gemini-3.5-flash",
                     messages=st.session_state.messages,
                     temperature=0.7
                 )
